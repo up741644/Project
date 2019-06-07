@@ -6,24 +6,20 @@ CREATE TABLE Dim.[Date] (
 	DISCHTIME DATETIME2,
 	DEATHTIME DATETIME2,
 	INTIME VARCHAR(20),
-	OUTIME VARCHAR(20),
+	OUTTIME VARCHAR(20),
 	EDREGTIME DATETIME2,
 	EDOUTTIME DATETIME2,
 	CHARTTIME DATETIME2,
 	STORETIME DATETIME2,
 );
 
-INSERT INTO Dim.[Date] (INTIME, OUTIME)
-SELECT INTIME, OUTTIME
-FROM Stage.ICUSTAYS;
+INSERT INTO Dim.Date (INTIME, OUTTIME, ADMITTIME, DISCHTIME, DEATHTIME, EDREGTIME, EDOUTTIME, CHARTTIME, STORETIME)
+SELECT i.INTIME, i.OUTTIME, a.ADMITTIME, a.DISCHTIME, a.DEATHTIME, a.EDREGTIME, a.EDOUTTIME, c.CHARTTIME, c.STORETIME
+FROM Stage.ICUSTAYS i
+JOIN Stage.ADMISSIONS a ON i.ROW_ID = a.ROW_ID
+JOIN Stage.CHARTEVENTS c ON i.ROW_ID = c.ROW_ID
 
-INSERT INTO Dim.[Date] (DISCHTIME, DEATHTIME, EDREGTIME, EDOUTTIME)
-SELECT DISCHTIME, DEATHTIME, EDREGTIME, EDOUTTIME
-FROM Stage.ADMISSIONS;
-
-INSERT INTO Dim.[Date] (CHARTTIME, STORETIME)
-SELECT CHARTTIME, STORETIME
-FROM Stage.CHARTEVENTS; -- Need to do
+SELECT * FROM Dim.Date;
 
 -- Patient Dimension
 
@@ -35,13 +31,12 @@ CREATE TABLE Dim.Patient (
 	Ethnicity VARCHAR(200)
 );
 
-INSERT INTO Dim.Patient (Gender, DOB, DOD)
-SELECT GENDER, DOB, DOD
-FROM Stage.PATIENTS;
+INSERT INTO Dim.Patient (Gender, DOB, DOD, Ethnicity)
+SELECT p.GENDER, p.DOB, p.DOD, a.ETHNICITY
+FROM Stage.PATIENTS p
+JOIN Stage.ADMISSIONS a ON p.ROW_ID = a.ROW_ID
 
-INSERT INTO Dim.Patient (Ethnicity)
-SELECT ETHNICITY
-FROM Stage.ADMISSIONS;
+SELECT * FROM Dim.Patient;
 
 -- Hospital Dimension
 
@@ -54,17 +49,13 @@ CREATE TABLE Dim.Hospital (
 	LengthOfStay DOUBLE PRECISION
 );
 
-INSERT INTO Dim.Hospital (EventType)
-SELECT EVENTTYPE
-FROM Stage.TRANSFERS;
+INSERT INTO Dim.Hospital (EventType, AdmissionType, AdmissionLocation, DischargeLocation, LengthOfStay)
+SELECT t.EventType, a.ADMISSION_LOCATION, a.ADMISSION_LOCATION, a.DISCHARGE_LOCATION, i.LOS
+FROM Stage.TRANSFERS t
+JOIN Stage.ADMISSIONS a ON t.ROW_ID = a.ROW_ID
+JOIN Stage.ICUSTAYS i ON t.ROW_ID = i.ROW_ID;
 
-INSERT INTO Dim.Hospital (AdmissionType, AdmissionLocation, DischargeLocation)
-SELECT ADMISSION_TYPE, ADMISSION_LOCATION, DISCHARGE_LOCATION
-FROM Stage.ADMISSIONS;
-
-INSERT INTO Dim.Hospital (LengthOfStay)
-SELECT LOS
-FROM Stage.ICUSTAYS;
+SELECT * FROM Dim.Hospital;
 
 -- Diagnosis Dimension
 
@@ -75,14 +66,12 @@ CREATE TABLE Dim.Diagnosis (
 	Label VARCHAR(200)
 );
 
-INSERT INTO Dim.Diagnosis (Diagnosis)
-SELECT DIAGNOSIS
-FROM Stage.ADMISSIONS
+INSERT INTO Dim.Diagnosis (Diagnosis, Category, Label)
+SELECT a.Diagnosis, i.Category, i.Label
+FROM Stage.ADMISSIONS a
+JOIN Stage.D_ITEMS i ON a.ROW_ID = i.ROW_ID
 
-INSERT INTO Dim.Diagnosis (Category, Label)
-SELECT CATEGORY, LABEL
-FROM Stage.D_ITEMS
-
+SELECT * FROM Dim.Diagnosis;
 
 --Length of Stay Fact
 
@@ -91,23 +80,16 @@ CREATE TABLE Fact.LengthOfStay (
 	Patient_ID INT REFERENCES Dim.Patient(Patient_ID),
 	Hospital_ID INT REFERENCES Dim.Hospital(Hospital_ID),
 	Diagnosis_ID INT REFERENCES Dim.Diagnosis(Diagnosis_ID),
-	Hours INT,
-	Days INT,
-	Weeks INT
+	Admitted DATETIME2,
+	Discharged DATETIME2
 );
 
-INSERT INTO Fact.LengthOfStay (Date_ID)
-SELECT Date_ID
-FROM Dim.[Date]
+INSERT INTO Fact.LengthOfStay (Date_ID, Patient_ID, Hospital_ID, Diagnosis_ID, Admitted, Discharged)
+SELECT d.Date_ID, p.Patient_ID, h.Hospital_ID, i.Diagnosis_ID, a.ADMITTIME,  a.DISCHTIME
+FROM Dim.Date d
+JOIN Dim.Patient p ON d.Date_ID = p.Patient_ID
+JOIN Dim.Hospital h ON d.Date_ID = h.Hospital_ID
+JOIN Dim.Diagnosis i ON d.Date_ID = i.Diagnosis_ID
+JOIN Stage.ADMISSIONS a ON d.Date_ID = a.ROW_ID
 
-INSERT INTO Fact.LengthOfStay (Patient_ID)
-SELECT Patient_ID
-FROM Dim.Patient
-
-INSERT INTO Fact.LengthOfStay (Hospital_ID)
-SELECT Hospital_ID
-FROM Dim.Hospital
-
-INSERT INTO Fact.LengthOfStay (Diagnosis_ID)
-SELECT Diagnosis_ID
-FROM Dim.Diagnosis
+SELECT * FROM Fact.LengthOfStay;
